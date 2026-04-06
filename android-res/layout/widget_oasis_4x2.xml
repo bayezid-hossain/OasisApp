@@ -1,0 +1,89 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@drawable/widget_bg"
+    android:orientation="vertical"
+    android:padding="16dp"
+    android:gravity="center_vertical">
+
+    <!-- Header row: orb + "Oasis" + timestamp -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:layout_marginBottom="8dp">
+
+        <ImageView
+            android:layout_width="20dp"
+            android:layout_height="20dp"
+            android:src="@drawable/oasis_ring_gradient"
+            android:layout_marginEnd="8dp" />
+
+        <TextView
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="Oasis"
+            android:textColor="#3ADCCC"
+            android:textSize="13sp"
+            android:fontFamily="sans-serif-medium" />
+
+        <TextView
+            android:id="@+id/widget_timestamp"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="–"
+            android:textColor="#80BFC9C4"
+            android:textSize="11sp" />
+
+    </LinearLayout>
+
+    <!-- Last thought text -->
+    <TextView
+        android:id="@+id/widget_thought_text"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:text="Tap the ring to capture your first thought"
+        android:textColor="#DFE3E4"
+        android:textSize="14sp"
+        android:maxLines="3"
+        android:ellipsize="end"
+        android:lineSpacingMultiplier="1.4" />
+
+    <!-- Action row -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="end|center_vertical"
+        android:layout_marginTop="8dp"
+        android:layout_gravity="end">
+
+        <!-- Mark done -->
+        <ImageButton
+            android:id="@+id/widget_btn_complete"
+            android:layout_width="36dp"
+            android:layout_height="36dp"
+            android:src="@android:drawable/checkbox_on_background"
+            android:background="@android:color/transparent"
+            android:tint="#94D3C1"
+            android:layout_marginEnd="8dp"
+            android:contentDescription="Mark done" />
+
+        <!-- Oasis Ring mic button -->
+        <ImageButton
+            android:id="@+id/widget_btn_record"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
+            android:src="@android:drawable/ic_btn_speak_now"
+            android:background="@drawable/oasis_ring_gradient"
+            android:tint="#003732"
+            android:contentDescription="Record thought" />
+
+    </LinearLayout>
+
+</LinearLayout>
