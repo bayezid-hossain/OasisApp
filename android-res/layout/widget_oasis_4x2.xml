@@ -22,14 +22,10 @@
             android:src="@drawable/oasis_ring_gradient"
             android:layout_marginEnd="8dp" />
 
-        <TextView
+        <Space
             android:layout_width="0dp"
             android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:text="Oasis"
-            android:textColor="#3ADCCC"
-            android:textSize="13sp"
-            android:fontFamily="sans-serif-medium" />
+            android:layout_weight="1" />
 
         <TextView
             android:id="@+id/widget_timestamp"

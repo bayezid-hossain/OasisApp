@@ -1,5 +1,6 @@
 package com.oasis.app.services
 
+import android.app.NotificationManager
 import android.app.Service
 import android.content.Intent
 import android.os.Bundle
@@ -13,27 +14,37 @@ import android.util.Log
 import com.facebook.react.ReactApplication
 import com.facebook.react.bridge.Arguments
 import com.facebook.react.modules.core.DeviceEventManagerModule
+import com.oasis.app.classifier.NoteClassifier
+import com.oasis.app.database.NoteEntity
+import com.oasis.app.database.OasisDatabase
 import com.oasis.app.utils.NotificationHelper
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import java.util.UUID
 
 class VoiceCaptureService : Service() {
 
     companion object {
         const val TAG = "VoiceCaptureService"
-        const val ACTION_START_LISTENING = "com.oasis.app.ACTION_START_LISTENING"
-        const val ACTION_STOP_LISTENING = "com.oasis.app.ACTION_STOP_LISTENING"
+        const val ACTION_START_LISTENING  = "com.oasis.app.ACTION_START_LISTENING"
+        const val ACTION_STOP_LISTENING   = "com.oasis.app.ACTION_STOP_LISTENING"
         const val ACTION_CANCEL_LISTENING = "com.oasis.app.ACTION_CANCEL_LISTENING"
 
         // Events emitted to React Native
-        const val EVENT_PARTIAL = "onPartialResult"
+        const val EVENT_PARTIAL   = "onPartialResult"
         const val EVENT_AMPLITUDE = "onAmplitudeUpdate"
-        const val EVENT_ERROR = "onSpeechError"
-        const val EVENT_RESULT = "onSpeechResult"
+        const val EVENT_ERROR     = "onSpeechError"
+        const val EVENT_RESULT    = "onSpeechResult"
+
+        // Shared state so QS tile can poll recording status
+        @Volatile var isRecording = false
     }
 
     private var speechRecognizer: SpeechRecognizer? = null
     private val mainHandler = Handler(Looper.getMainLooper())
-    private var isListening = false
     private var amplitudeSampler: Runnable? = null
+    private val serviceScope = CoroutineScope(Dispatchers.IO)
 
     // ── Lifecycle ────────────────────────────────────────────────────────────
 
@@ -50,17 +61,18 @@ class VoiceCaptureService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
-            ACTION_START_LISTENING -> startListening()
-            ACTION_STOP_LISTENING -> stopListening()
+            ACTION_START_LISTENING  -> startListening()
+            ACTION_STOP_LISTENING   -> stopListening()
             ACTION_CANCEL_LISTENING -> cancelListening()
         }
-        return START_STICKY
+        return START_NOT_STICKY
     }
 
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onDestroy() {
-        cancelListening()
+        isRecording = false
+        cancelListeningInternal()
         speechRecognizer?.destroy()
         speechRecognizer = null
         super.onDestroy()
@@ -82,8 +94,8 @@ class VoiceCaptureService : Service() {
     }
 
     private fun startListening() {
-        if (isListening) return
-        Log.d(TAG, "OASIS_LATENCY: startListening called at ${System.currentTimeMillis()}")
+        if (isRecording) return
+        Log.d(TAG, "OASIS_LATENCY: startListening at ${System.currentTimeMillis()}")
         mainHandler.post {
             val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
                 putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
@@ -91,7 +103,7 @@ class VoiceCaptureService : Service() {
                 putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 1)
             }
             speechRecognizer?.startListening(intent)
-            isListening = true
+            isRecording = true
             startAmplitudeSampler()
         }
     }
@@ -100,31 +112,31 @@ class VoiceCaptureService : Service() {
         mainHandler.post {
             speechRecognizer?.stopListening()
             stopAmplitudeSampler()
+            // Result delivered via onResults callback
         }
     }
 
     private fun cancelListening() {
+        cancelListeningInternal()
+        stopSelfAndDismissNotification()
+    }
+
+    private fun cancelListeningInternal() {
         mainHandler.post {
             speechRecognizer?.cancel()
-            isListening = false
+            isRecording = false
             stopAmplitudeSampler()
         }
     }
 
-    // ── Amplitude sampling (50ms interval → waveform bars) ──────────────────
+    // ── Amplitude sampling ────────────────────────────────────────────────────
 
     private fun startAmplitudeSampler() {
         stopAmplitudeSampler()
         amplitudeSampler = object : Runnable {
             override fun run() {
-                if (!isListening) return
-                // RmsDbLevel is 0–10+ in practice; normalize to 0–1
-                val rms = try {
-                    // SpeechRecognizer does not expose getRmsDbLevel publicly in all API levels;
-                    // we emit a dummy value and let the real callback provide it via onRmsChanged.
-                    0f
-                } catch (_: Exception) { 0f }
-                emitAmplitude(rms)
+                if (!isRecording) return
+                emitAmplitude(0f) // real value comes via onRmsChanged
                 mainHandler.postDelayed(this, 50)
             }
         }
@@ -140,51 +152,56 @@ class VoiceCaptureService : Service() {
 
     private val recognitionListener = object : RecognitionListener {
         override fun onReadyForSpeech(params: Bundle?) {
-            Log.d(TAG, "OASIS_LATENCY: ready for speech at ${System.currentTimeMillis()}")
+            Log.d(TAG, "OASIS_LATENCY: ready at ${System.currentTimeMillis()}")
         }
 
         override fun onRmsChanged(rmsdB: Float) {
-            // Normalize: typical range is -2 to 10 dB
             val normalized = ((rmsdB + 2f) / 12f).coerceIn(0f, 1f)
             emitAmplitude(normalized)
         }
 
         override fun onPartialResults(partialResults: Bundle?) {
-            val results = partialResults?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
-            val text = results?.firstOrNull() ?: return
-            emitEvent(EVENT_PARTIAL, Arguments.createMap().apply {
-                putString("text", text)
-            })
+            val text = partialResults
+                ?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
+                ?.firstOrNull() ?: return
+            emitEvent(EVENT_PARTIAL, Arguments.createMap().apply { putString("text", text) })
         }
 
         override fun onResults(results: Bundle?) {
-            isListening = false
+            isRecording = false
             stopAmplitudeSampler()
-            val matches = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
-            val transcript = matches?.firstOrNull() ?: ""
-            emitEvent(EVENT_RESULT, Arguments.createMap().apply {
+            val transcript = results
+                ?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
+                ?.firstOrNull() ?: ""
+
+            // Always try to emit to RN (app is open)
+            val emitted = tryEmitEvent(EVENT_RESULT, Arguments.createMap().apply {
                 putString("transcript", transcript)
             })
-            // Re-init recognizer for next session (keeps it warm)
+
+            // Fallback: app not open (lock screen / background) — save directly
+            if (!emitted && transcript.isNotBlank()) {
+                saveDirectlyToDb(transcript)
+            }
+
             initRecognizer()
+            stopSelfAndDismissNotification()
         }
 
         override fun onError(error: Int) {
-            isListening = false
+            isRecording = false
             stopAmplitudeSampler()
             val msg = when (error) {
-                SpeechRecognizer.ERROR_AUDIO -> "Audio recording error"
-                SpeechRecognizer.ERROR_CLIENT -> "Client side error"
+                SpeechRecognizer.ERROR_AUDIO                 -> "Audio recording error"
                 SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS -> "Insufficient permissions"
-                SpeechRecognizer.ERROR_NETWORK -> "Network error"
-                SpeechRecognizer.ERROR_NO_MATCH -> "No match"
-                SpeechRecognizer.ERROR_RECOGNIZER_BUSY -> "RecognitionService busy"
-                SpeechRecognizer.ERROR_SERVER -> "Server error"
-                SpeechRecognizer.ERROR_SPEECH_TIMEOUT -> "No speech input"
-                else -> "Unknown error"
+                SpeechRecognizer.ERROR_NO_MATCH              -> "No speech detected"
+                SpeechRecognizer.ERROR_RECOGNIZER_BUSY       -> "Recognizer busy"
+                SpeechRecognizer.ERROR_SPEECH_TIMEOUT        -> "No speech input"
+                else -> "Speech error ($error)"
             }
             emitError(error, msg)
             initRecognizer()
+            stopSelfAndDismissNotification()
         }
 
         override fun onBeginningOfSpeech() {}
@@ -193,30 +210,75 @@ class VoiceCaptureService : Service() {
         override fun onEvent(eventType: Int, params: Bundle?) {}
     }
 
+    // ── Direct DB save (when RN context unavailable — lock screen) ───────────
+
+    private fun saveDirectlyToDb(transcript: String) {
+        serviceScope.launch {
+            try {
+                val result = NoteClassifier.classify(transcript)
+                val entity = NoteEntity(
+                    id          = UUID.randomUUID().toString(),
+                    text        = transcript,
+                    createdAt   = System.currentTimeMillis(),
+                    type        = result.type,
+                    inputSource = "voice",
+                    tags        = "",
+                    confidence  = result.confidence
+                )
+                OasisDatabase.getInstance(applicationContext).noteDao().insert(entity)
+
+                // Show "saved" confirmation on lock screen
+                val nm = getSystemService(NotificationManager::class.java)
+                nm.notify(
+                    NotificationHelper.NOTIF_ID_SAVED,
+                    NotificationHelper.buildSavedNotification(applicationContext, transcript)
+                )
+                Log.d(TAG, "Note saved directly to DB (lock screen path): ${transcript.take(40)}")
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to save note directly: ${e.message}")
+            }
+        }
+    }
+
     // ── Helpers ───────────────────────────────────────────────────────────────
 
+    private fun stopSelfAndDismissNotification() {
+        stopForeground(STOP_FOREGROUND_REMOVE)
+        stopSelf()
+    }
+
     private fun emitAmplitude(amplitude: Float) {
-        emitEvent(EVENT_AMPLITUDE, Arguments.createMap().apply {
+        tryEmitEvent(EVENT_AMPLITUDE, Arguments.createMap().apply {
             putDouble("amplitude", amplitude.toDouble())
         })
     }
 
     private fun emitError(code: Int, message: String) {
-        emitEvent(EVENT_ERROR, Arguments.createMap().apply {
+        tryEmitEvent(EVENT_ERROR, Arguments.createMap().apply {
             putInt("code", code)
             putString("message", message)
         })
     }
 
-    private fun emitEvent(eventName: String, params: com.facebook.react.bridge.WritableMap) {
-        try {
-            val app = application as? ReactApplication ?: return
-            app.reactNativeHost.reactInstanceManager
-                .currentReactContext
-                ?.getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter::class.java)
+    /** Returns true if the event was successfully emitted to a live RN context. */
+    private fun tryEmitEvent(
+        eventName: String,
+        params: com.facebook.react.bridge.WritableMap
+    ): Boolean {
+        return try {
+            val app = application as? ReactApplication ?: return false
+            val ctx = app.reactNativeHost.reactInstanceManager.currentReactContext
+                ?: return false
+            ctx.getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter::class.java)
                 ?.emit(eventName, params)
+            true
         } catch (_: Exception) {
-            // RN context may not be ready (e.g., triggered from widget before app launch)
+            false
         }
+    }
+
+    // Keep old name for callers that don't need return value
+    private fun emitEvent(eventName: String, params: com.facebook.react.bridge.WritableMap) {
+        tryEmitEvent(eventName, params)
     }
 }

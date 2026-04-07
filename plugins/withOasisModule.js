@@ -15,6 +15,7 @@ const path = require('path')
  *  4. Patches AndroidManifest.xml: permissions, services, receivers, QS tile, widget
  *  5. Patches app/build.gradle: kapt, Room, WorkManager, Coroutines, ProGuard
  *  6. Writes proguard-rules.pro keep rules
+ *  7. Pins Gradle wrapper to 8.14.3 (matches Expo 54 + RN 0.81.x — known-good)
  *
  * `expo prebuild --clean` is fully safe — everything is restored automatically.
  */
@@ -25,6 +26,7 @@ const withOasisModule = (config) => {
   config = withOasisManifest(config)
   config = withOasisBuildGradle(config)
   config = withOasisProguard(config)
+  config = withGradleWrapper(config)
   return config
 }
 
@@ -248,6 +250,24 @@ const withOasisManifest = (config) => {
       })
     }
 
+    // NotificationActionReceiver — handles Stop/Cancel from lock-screen notification
+    if (!hasReceiver('com.oasis.app.receivers.NotificationActionReceiver')) {
+      app.receiver.push({
+        $: {
+          'android:name': 'com.oasis.app.receivers.NotificationActionReceiver',
+          'android:exported': 'false',
+        },
+        'intent-filter': [
+          {
+            action: [
+              { $: { 'android:name': 'com.oasis.app.NOTIF_ACTION_STOP' } },
+              { $: { 'android:name': 'com.oasis.app.NOTIF_ACTION_CANCEL' } },
+            ],
+          },
+        ],
+      })
+    }
+
     // 4x2 Widget
     if (!hasReceiver('com.oasis.app.widget.OasisWidgetProvider')) {
       app.receiver.push({
@@ -299,16 +319,16 @@ const withOasisBuildGradle = (config) => {
       gradle = gradle.replace(
         'dependencies {',
         `dependencies {
-    // Room
-    implementation "androidx.room:room-runtime:2.6.1"
-    implementation "androidx.room:room-ktx:2.6.1"
-    kapt "androidx.room:room-compiler:2.6.1"
+    // Room 2.7.0 — bundles kotlinx-metadata-jvm 0.9.0 which supports Kotlin 2.1.x metadata
+    implementation "androidx.room:room-runtime:2.7.0"
+    implementation "androidx.room:room-ktx:2.7.0"
+    kapt "androidx.room:room-compiler:2.7.0"
     // WorkManager
     implementation "androidx.work:work-runtime-ktx:2.9.0"
     // Coroutines
-    implementation "org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3"
+    implementation "org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1"
     // Core KTX
-    implementation "androidx.core:core-ktx:1.12.0"`
+    implementation "androidx.core:core-ktx:1.13.1"`
       )
     }
 
@@ -355,6 +375,33 @@ const withOasisProguard = (config) => {
         : ''
       if (!existing.includes('Oasis keep rules')) {
         fs.writeFileSync(proguardPath, existing + PROGUARD_RULES, 'utf8')
+      }
+      return mod
+    },
+  ])
+}
+
+// ── 7. Pin Gradle wrapper to 8.14.3 ──────────────────────────────────────────
+// Matches SecureSMS (Expo 54 + RN 0.81.5) — a known-good configuration.
+
+const GRADLE_VERSION = '8.14.3'
+
+const withGradleWrapper = (config) => {
+  return withDangerousMod(config, [
+    'android',
+    (mod) => {
+      const wrapperPath = path.join(
+        mod.modRequest.platformProjectRoot,
+        'gradle', 'wrapper', 'gradle-wrapper.properties'
+      )
+      if (fs.existsSync(wrapperPath)) {
+        let contents = fs.readFileSync(wrapperPath, 'utf8')
+        contents = contents.replace(
+          /distributionUrl=.*gradle-.*\.zip/,
+          `distributionUrl=https\\://services.gradle.org/distributions/gradle-${GRADLE_VERSION}-bin.zip`
+        )
+        fs.writeFileSync(wrapperPath, contents, 'utf8')
+        console.log(`[withOasisModule] Pinned Gradle to ${GRADLE_VERSION}`)
       }
       return mod
     },

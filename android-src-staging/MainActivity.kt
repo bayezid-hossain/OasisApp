@@ -11,7 +11,7 @@ import com.facebook.react.modules.core.DeviceEventManagerModule
 
 class MainActivity : ReactActivity() {
 
-  override fun getMainComponentName(): String = "OasisApp"
+  override fun getMainComponentName(): String = "main"
 
   override fun createReactActivityDelegate(): ReactActivityDelegate =
       DefaultReactActivityDelegate(this, mainComponentName, fabricEnabled)
