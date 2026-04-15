@@ -1,23 +1,21 @@
-import React, {useRef, useState} from 'react';
+import { useKeyboardHeight, useTextCapture } from '@/hooks';
+import { useCaptureStore } from '@/stores';
+import { colors, radius, spacing, typography } from '@/theme';
+import type { NoteType } from '@/types';
+import { classifyNote } from '@/utils';
+import React, { useRef, useState } from 'react';
 import {
   StyleSheet,
-  TextInput,
-  View,
   Text,
+  TextInput,
   TouchableOpacity,
-  KeyboardAvoidingView,
-  Platform,
+  View,
 } from 'react-native';
 import Animated, {
   useAnimatedStyle,
   useSharedValue,
   withSpring,
 } from 'react-native-reanimated';
-import {colors, typography, spacing, radius} from '@/theme';
-import {useCaptureStore} from '@/stores';
-import {useTextCapture, useKeyboardVisible} from '@/hooks';
-import {classifyNote} from '@/utils';
-import type {NoteType} from '@/types';
 
 const TYPE_COLORS: Record<NoteType, string> = {
   reminder: '#FFB347',
@@ -34,9 +32,9 @@ const TYPE_LABELS: Record<NoteType, string> = {
 };
 
 export function TextCaptureMode() {
-  const {textDraft, setTextDraft, status} = useCaptureStore();
-  const {submitText} = useTextCapture();
-  const isKeyboardVisible = useKeyboardVisible();
+  const { textDraft, setTextDraft, status } = useCaptureStore();
+  const { submitText } = useTextCapture();
+  const kbHeight = useKeyboardHeight();
   const [liveType, setLiveType] = useState<NoteType | null>(null);
   const sendBtnOpacity = useSharedValue(0);
   const sendBtnScale = useSharedValue(0.8);
@@ -67,18 +65,16 @@ export function TextCaptureMode() {
 
   const sendStyle = useAnimatedStyle(() => ({
     opacity: sendBtnOpacity.value,
-    transform: [{scale: sendBtnScale.value}],
+    transform: [{ scale: sendBtnScale.value }],
   }));
 
   const isSaved = status === 'saved';
 
   return (
-    <KeyboardAvoidingView
-      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-      style={styles.keyboardView}>
+    <View style={styles.keyboardView}>
       <View style={[
         styles.container,
-        isKeyboardVisible && styles.containerKeyboard
+        { paddingBottom: kbHeight > 0 ? kbHeight + spacing.lg : spacing.xl }
       ]}>
         {isSaved ? (
           <Text style={styles.savedLabel}>Thought Captured</Text>
@@ -96,19 +92,21 @@ export function TextCaptureMode() {
               selectionColor={`${colors.tertiary}60`}
             />
 
-            {liveType && (
-              <View
-                style={[
-                  styles.typeBadge,
-                  {borderColor: TYPE_COLORS[liveType]},
-                ]}>
-                <Text style={[styles.typeLabel, {color: TYPE_COLORS[liveType]}]}>
-                  {TYPE_LABELS[liveType]}
-                </Text>
-              </View>
-            )}
-
             <View style={styles.actions}>
+              <View style={{ flex: 1, justifyContent: 'center' }}>
+                {liveType && (
+                  <View
+                    style={[
+                      styles.typeBadge,
+                      { borderColor: TYPE_COLORS[liveType], marginTop: 0 },
+                    ]}>
+                    <Text style={[styles.typeLabel, { color: TYPE_COLORS[liveType] }]}>
+                      {TYPE_LABELS[liveType]}
+                    </Text>
+                  </View>
+                )}
+              </View>
+
               <Animated.View style={sendStyle}>
                 <TouchableOpacity
                   style={styles.sendBtn}
@@ -121,7 +119,7 @@ export function TextCaptureMode() {
           </>
         )}
       </View>
-    </KeyboardAvoidingView>
+    </View>
   );
 }
 
@@ -133,10 +131,6 @@ const styles = StyleSheet.create({
     flex: 1,
     padding: spacing['2xl'],
     justifyContent: 'flex-end',
-    paddingBottom: (Platform.OS === 'ios' ? spacing.xl : 0),
-  },
-  containerKeyboard: {
-    paddingBottom: (Platform.OS === 'ios' ? spacing.xl : spacing.md),
   },
   input: {
     ...typography.titleMd,

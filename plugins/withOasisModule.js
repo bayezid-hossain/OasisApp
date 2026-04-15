@@ -236,6 +236,16 @@ const withOasisManifest = (config) => {
       })
     }
 
+    // IdlePersistService — keeps the always-on idle notification non-dismissable
+    if (!hasService('com.oasis.app.services.IdlePersistService')) {
+      app.service.push({
+        $: {
+          'android:name': 'com.oasis.app.services.IdlePersistService',
+          'android:exported': 'false',
+        },
+      })
+    }
+
     // Quick Settings Tile
     if (!hasService('com.oasis.app.tile.OasisQSTile')) {
       app.service.push({
@@ -303,28 +313,51 @@ const withOasisManifest = (config) => {
       })
     }
 
-    // 4x2 Widget
-    if (!hasReceiver('com.oasis.app.widget.OasisWidgetProvider')) {
-      app.receiver.push({
-        $: {
-          'android:name': 'com.oasis.app.widget.OasisWidgetProvider',
-          'android:exported': 'true',
+    // 4x2 Widget — always ensure correct intent-filter (recording actions added)
+    const widgetIdx = app.receiver.findIndex(
+      (r) => r.$?.['android:name'] === 'com.oasis.app.widget.OasisWidgetProvider'
+    )
+    const widgetReceiver = {
+      $: {
+        'android:name': 'com.oasis.app.widget.OasisWidgetProvider',
+        'android:exported': 'true',
+      },
+      'intent-filter': [
+        {
+          action: [
+            { $: { 'android:name': 'android.appwidget.action.APPWIDGET_UPDATE' } },
+            { $: { 'android:name': 'com.oasis.app.WIDGET_RECORDING_STARTED' } },
+            { $: { 'android:name': 'com.oasis.app.WIDGET_RECORDING_STOPPED' } },
+          ],
         },
-        'intent-filter': [
-          {
-            action: [
-              { $: { 'android:name': 'android.appwidget.action.APPWIDGET_UPDATE' } },
-            ],
+      ],
+      'meta-data': [
+        {
+          $: {
+            'android:name': 'android.appwidget.provider',
+            'android:resource': '@xml/appwidget_info',
           },
-        ],
-        'meta-data': [
-          {
-            $: {
-              'android:name': 'android.appwidget.provider',
-              'android:resource': '@xml/appwidget_info',
-            },
-          },
-        ],
+        },
+      ],
+    }
+    if (widgetIdx >= 0) {
+      app.receiver[widgetIdx] = widgetReceiver   // replace stale entry
+    } else {
+      app.receiver.push(widgetReceiver)
+    }
+
+    // TextCaptureActivity — floating overlay for widget text button
+    if (!app.activity) app.activity = []
+    const hasActivity = (name) => app.activity.some((a) => a.$?.['android:name'] === name)
+    if (!hasActivity('com.oasis.app.ui.TextCaptureActivity')) {
+      app.activity.push({
+        $: {
+          'android:name': 'com.oasis.app.ui.TextCaptureActivity',
+          'android:theme': '@android:style/Theme.Translucent.NoTitleBar',
+          'android:exported': 'false',
+          'android:showOnLockScreen': 'true',
+          'android:windowSoftInputMode': 'stateAlwaysVisible|adjustResize',
+        },
       })
     }
 
@@ -480,7 +513,6 @@ const withFixNamespaceImports = (config) => {
       const filesToPatch = [
         path.join(javaRoot, 'MainApplication.kt'),
         path.join(javaRoot, 'widget', 'OasisWidgetProvider.kt'),
-        path.join(javaRoot, 'widget', 'WidgetUpdateWorker.kt'),
       ]
 
       for (const filePath of filesToPatch) {
