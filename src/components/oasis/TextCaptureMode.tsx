@@ -15,7 +15,7 @@ import Animated, {
 } from 'react-native-reanimated';
 import {colors, typography, spacing, radius} from '@/theme';
 import {useCaptureStore} from '@/stores';
-import {useTextCapture} from '@/hooks';
+import {useTextCapture, useKeyboardVisible} from '@/hooks';
 import {classifyNote} from '@/utils';
 import type {NoteType} from '@/types';
 
@@ -36,6 +36,7 @@ const TYPE_LABELS: Record<NoteType, string> = {
 export function TextCaptureMode() {
   const {textDraft, setTextDraft, status} = useCaptureStore();
   const {submitText} = useTextCapture();
+  const isKeyboardVisible = useKeyboardVisible();
   const [liveType, setLiveType] = useState<NoteType | null>(null);
   const sendBtnOpacity = useSharedValue(0);
   const sendBtnScale = useSharedValue(0.8);
@@ -75,7 +76,10 @@ export function TextCaptureMode() {
     <KeyboardAvoidingView
       behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
       style={styles.keyboardView}>
-      <View style={styles.container}>
+      <View style={[
+        styles.container,
+        isKeyboardVisible && styles.containerKeyboard
+      ]}>
         {isSaved ? (
           <Text style={styles.savedLabel}>Thought Captured</Text>
         ) : (
@@ -129,7 +133,10 @@ const styles = StyleSheet.create({
     flex: 1,
     padding: spacing['2xl'],
     justifyContent: 'flex-end',
-    paddingBottom: spacing['3xl'],
+    paddingBottom: (Platform.OS === 'ios' ? spacing.xl : 0),
+  },
+  containerKeyboard: {
+    paddingBottom: (Platform.OS === 'ios' ? spacing.xl : spacing.md),
   },
   input: {
     ...typography.titleMd,

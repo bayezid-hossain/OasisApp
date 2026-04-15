@@ -22,6 +22,12 @@ export interface PartialResultEvent {
   text: string;
 }
 
+export interface SpeechResultEvent {
+  transcript: string;
+  noteId: string;      // pre-generated UUID from native side
+  audioPath: string;   // absolute path to .m4a, empty string if recording failed
+}
+
 export interface AmplitudeUpdateEvent {
   amplitude: number; // 0.0–1.0
 }

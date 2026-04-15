@@ -1,26 +1,65 @@
-import React, {useEffect} from 'react';
+import React, {useMemo, useCallback} from 'react';
 import {
-  FlatList,
-  SafeAreaView,
+  RefreshControl,
   ScrollView,
   StyleSheet,
   Text,
   TouchableOpacity,
   View,
 } from 'react-native';
+import {SafeAreaView, useSafeAreaInsets} from 'react-native-safe-area-context';
+import {useFocusEffect} from '@react-navigation/native';
 import type {BottomTabScreenProps} from '@react-navigation/bottom-tabs';
 import type {CompositeScreenProps} from '@react-navigation/native';
 import type {StackScreenProps} from '@react-navigation/stack';
 import type {TabParamList, RootStackParamList} from '@/navigation/routes';
-import {colors, typography, spacing} from '@/theme';
+import {colors, typography, spacing, radius} from '@/theme';
 import {ThoughtCard} from '@/components/thoughts/ThoughtCard';
 import {FilterChip} from '@/components/common/FilterChip';
 import {OasisRing} from '@/components/oasis/OasisRing';
 import {useNotes, usePermissions} from '@/hooks';
 import {useNotesStore, useCaptureStore} from '@/stores';
-import type {NoteType} from '@/types';
+import type {Note, NoteType} from '@/types';
 import {AlarmService} from '@/services';
 
+// ── Date grouping ────────────────────────────────────────────────────────────
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+function startOfDay(ts: number): number {
+  const d = new Date(ts);
+  d.setHours(0, 0, 0, 0);
+  return d.getTime();
+}
+
+function groupNotesByDate(notes: Note[]): {label: string; notes: Note[]}[] {
+  const today = startOfDay(Date.now());
+  const yesterday = today - DAY_MS;
+  const weekAgo = today - 6 * DAY_MS;
+
+  const buckets = {
+    today: [] as Note[],
+    yesterday: [] as Note[],
+    week: [] as Note[],
+    earlier: [] as Note[],
+  };
+
+  for (const n of notes) {
+    const d = startOfDay(n.createdAt);
+    if (d >= today) buckets.today.push(n);
+    else if (d >= yesterday) buckets.yesterday.push(n);
+    else if (d >= weekAgo) buckets.week.push(n);
+    else buckets.earlier.push(n);
+  }
+
+  return [
+    {label: 'Today', notes: buckets.today},
+    {label: 'Yesterday', notes: buckets.yesterday},
+    {label: 'This week', notes: buckets.week},
+    {label: 'Earlier', notes: buckets.earlier},
+  ].filter(g => g.notes.length > 0);
+}
+
+// ── Types ────────────────────────────────────────────────────────────────────
 type Props = CompositeScreenProps<
   BottomTabScreenProps<TabParamList, 'Dashboard'>,
   StackScreenProps<RootStackParamList>
@@ -41,194 +80,234 @@ function greeting(): string {
   return 'Good evening.';
 }
 
+// ── Screen ───────────────────────────────────────────────────────────────────
 export default function DashboardScreen({navigation}: Props) {
   const {notes, isLoading, activeFilter, setFilter, refresh} = useNotes();
+  const fetchNotes = useNotesStore(s => s.fetchNotes);
   const openOverlay = useCaptureStore(s => s.openOverlay);
   const {requestAll, allGranted} = usePermissions();
+  const insets = useSafeAreaInsets();
 
-  useEffect(() => {
+  // Refresh every time this screen gets focus (covers notification → home)
+  useFocusEffect(
+    useCallback(() => {
+      fetchNotes();
+    }, [fetchNotes]),
+  );
+
+  // First mount: permissions + weekly recap
+  React.useEffect(() => {
     if (!allGranted) requestAll();
-    // Schedule weekly recap on first load
     AlarmService.scheduleWeeklyRecap().catch(() => {});
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const handleOpenCapture = (mode: 'voice' | 'text' = 'voice') => {
+  const handleOpenCapture = (mode: 'voice' | 'text') => {
     openOverlay(mode);
     navigation.navigate('CaptureOverlay', {defaultMode: mode});
   };
 
-  const handleNotePress = (noteId: string) => {
-    navigation.navigate('ThoughtDetail', {noteId});
-  };
+  const groups = useMemo(() => groupNotesByDate(notes), [notes]);
 
-  const [featuredNote, ...restNotes] = notes;
+  // Bottom bar height so content is never hidden under it
+  const BAR_H = 72;
+  const barTotal = BAR_H + insets.bottom;
 
   return (
-    <SafeAreaView style={styles.safe}>
+    <SafeAreaView style={styles.safe} edges={['top', 'left', 'right']}>
+
+      {/* ── Header ────────────────────────────────────────────────── */}
+      <View style={styles.header}>
+        <View>
+          <Text style={styles.appName}>Oasis</Text>
+          <Text style={styles.noteCount}>
+            {notes.length === 0
+              ? 'No thoughts yet'
+              : `${notes.length} thought${notes.length === 1 ? '' : 's'}`}
+          </Text>
+        </View>
+        <Text style={styles.greetingInline}>{greeting()}</Text>
+      </View>
+
+      {/* ── Filter chips ─────────────────────────────────────────── */}
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        style={styles.filterScroll}
+        contentContainerStyle={styles.filterContent}>
+        {FILTERS.map(f => (
+          <FilterChip
+            key={f.value}
+            label={f.label}
+            active={activeFilter === f.value}
+            onPress={() => setFilter(f.value)}
+          />
+        ))}
+      </ScrollView>
+
+      {/* ── Notes list ───────────────────────────────────────────── */}
       <ScrollView
         style={styles.scroll}
-        contentContainerStyle={styles.content}
-        showsVerticalScrollIndicator={false}>
-        {/* Header */}
-        <View style={styles.header}>
-          <Text style={styles.appName}>Oasis</Text>
-          <TouchableOpacity onPress={() => handleOpenCapture('text')} style={styles.textBtn}>
-            <Text style={styles.textBtnLabel}>⌨️</Text>
-          </TouchableOpacity>
-        </View>
-
-        {/* Greeting */}
-        <Text style={styles.greeting}>{greeting()}</Text>
-        <Text style={styles.subGreeting}>
-          {notes.length === 0
-            ? 'Your mind is clear. Start capturing thoughts.'
-            : `${notes.length} thought${notes.length === 1 ? '' : 's'} captured`}
-        </Text>
-
-        {/* Filter chips */}
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          style={styles.filterRow}
-          contentContainerStyle={styles.filterContent}>
-          {FILTERS.map(f => (
-            <FilterChip
-              key={f.value}
-              label={f.label}
-              active={activeFilter === f.value}
-              onPress={() => setFilter(f.value)}
-            />
-          ))}
-        </ScrollView>
-
-        {/* Bento grid */}
+        contentContainerStyle={[
+          styles.scrollContent,
+          {paddingBottom: barTotal + spacing.xl},
+        ]}
+        showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl
+            refreshing={isLoading}
+            onRefresh={refresh}
+            tintColor={colors.tertiary}
+            colors={[colors.tertiary]}
+          />
+        }>
         {notes.length === 0 ? (
           <View style={styles.emptyState}>
-            <Text style={styles.emptyText}>
-              Tap the ring to capture your first thought
+            <Text style={styles.emptyTitle}>Your mind is clear.</Text>
+            <Text style={styles.emptyBody}>
+              Hold the ring to capture a voice note,{'\n'}or tap Text to write.
             </Text>
           </View>
         ) : (
-          <View style={styles.grid}>
-            {/* Featured large card */}
-            {featuredNote && (
-              <ThoughtCard
-                note={featuredNote}
-                large
-                onPress={() => handleNotePress(featuredNote.id)}
-              />
-            )}
-
-            {/* Remaining cards in 2-col grid */}
-            {restNotes.length > 0 && (
-              <View style={styles.twoCol}>
-                {restNotes.map((note, i) => (
-                  <View key={note.id} style={[styles.colCard, i % 2 === 1 && styles.colCardOffset]}>
-                    <ThoughtCard
-                      note={note}
-                      onPress={() => handleNotePress(note.id)}
-                    />
-                  </View>
+          <View style={styles.sections}>
+            {groups.map(group => (
+              <View key={group.label} style={styles.section}>
+                <Text style={styles.sectionLabel}>{group.label}</Text>
+                {group.notes.map(note => (
+                  <ThoughtCard
+                    key={note.id}
+                    note={note}
+                    onPress={() =>
+                      navigation.navigate('ThoughtDetail', {noteId: note.id})
+                    }
+                  />
                 ))}
               </View>
-            )}
+            ))}
           </View>
         )}
-
-        {/* Bottom spacer for FAB */}
-        <View style={{height: 100}} />
       </ScrollView>
 
-      {/* Oasis Ring FAB */}
-      <View style={styles.fab}>
-        <OasisRing
-          size={64}
-          onPress={() => handleOpenCapture('voice')}
-        />
+      {/* ── Bottom capture bar ───────────────────────────────────── */}
+      <View style={[styles.captureBar, {height: barTotal, paddingBottom: insets.bottom}]}>
+        {/* Text button */}
+        <TouchableOpacity
+          style={styles.textBtn}
+          onPress={() => handleOpenCapture('text')}
+          activeOpacity={0.75}>
+          <Text style={styles.textBtnIcon}>✎</Text>
+          <Text style={styles.textBtnLabel}>Text</Text>
+        </TouchableOpacity>
+
+        {/* Oasis Ring — voice */}
+        <OasisRing size={56} onPress={() => handleOpenCapture('voice')} />
       </View>
+
     </SafeAreaView>
   );
 }
 
+// ── Styles ───────────────────────────────────────────────────────────────────
 const styles = StyleSheet.create({
   safe: {
     flex: 1,
     backgroundColor: colors.surface,
-  },
-  scroll: {
-    flex: 1,
-  },
-  content: {
-    paddingTop: spacing.base,
   },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: spacing['2xl'],
-    marginBottom: spacing.base,
+    paddingTop: spacing.base,
+    paddingBottom: spacing.md,
   },
   appName: {
     ...typography.headlineSm,
     color: colors.tertiary,
+    letterSpacing: 0.5,
   },
-  textBtn: {
-    padding: spacing.sm,
+  noteCount: {
+    ...typography.labelSm,
+    color: colors.onSurfaceVariant,
+    opacity: 0.6,
+    marginTop: 2,
   },
-  textBtnLabel: {
-    fontSize: 22,
-  },
-  greeting: {
-    ...typography.headlineMd,
-    color: colors.onSurface,
-    paddingHorizontal: spacing['2xl'],
-    marginBottom: spacing.xs,
-  },
-  subGreeting: {
+  greetingInline: {
     ...typography.bodyMd,
     color: colors.onSurfaceVariant,
-    paddingHorizontal: spacing['2xl'],
-    marginBottom: spacing.xl,
     opacity: 0.7,
   },
-  filterRow: {
-    marginBottom: spacing.xl,
+  filterScroll: {
+    flexGrow: 0,
+    marginBottom: spacing.md,
   },
   filterContent: {
     paddingHorizontal: spacing['2xl'],
     gap: spacing.sm,
     flexDirection: 'row',
   },
-  grid: {
-    paddingHorizontal: spacing.base,
-    gap: spacing.base,
-  },
-  twoCol: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: spacing.base,
-  },
-  colCard: {
+  scroll: {
     flex: 1,
-    minWidth: '45%',
   },
-  colCardOffset: {
-    marginTop: spacing['2xl'], // asymmetric bento offset
+  scrollContent: {
+    paddingHorizontal: spacing['2xl'],
+    paddingTop: spacing.sm,
+  },
+  sections: {
+    gap: spacing['2xl'],
+  },
+  section: {
+    gap: spacing.md,
+  },
+  sectionLabel: {
+    ...typography.labelMd,
+    color: colors.onSurfaceVariant,
+    textTransform: 'uppercase',
+    letterSpacing: 1.2,
+    opacity: 0.5,
+    marginBottom: spacing.xs,
   },
   emptyState: {
+    flex: 1,
     alignItems: 'center',
-    paddingVertical: spacing['5xl'],
-    paddingHorizontal: spacing['2xl'],
+    paddingTop: spacing['5xl'],
+    gap: spacing.md,
   },
-  emptyText: {
-    ...typography.bodyLg,
+  emptyTitle: {
+    ...typography.titleMd,
+    color: colors.onSurface,
+    opacity: 0.8,
+  },
+  emptyBody: {
+    ...typography.bodyMd,
     color: colors.onSurfaceVariant,
     textAlign: 'center',
-    opacity: 0.6,
+    opacity: 0.5,
+    lineHeight: 22,
   },
-  fab: {
-    position: 'absolute',
-    bottom: spacing['3xl'],
-    alignSelf: 'center',
+  // Bottom bar: solid surface so cards never peek through
+  captureBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: spacing['3xl'],
+    backgroundColor: colors.surface,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: `${colors.outlineVariant}40`,
+  },
+  textBtn: {
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: spacing.xl,
+    paddingVertical: spacing.sm,
+  },
+  textBtnIcon: {
+    fontSize: 22,
+    color: colors.onSurfaceVariant,
+  },
+  textBtnLabel: {
+    ...typography.labelSm,
+    color: colors.onSurfaceVariant,
+    opacity: 0.8,
   },
 });

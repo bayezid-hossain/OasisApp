@@ -12,10 +12,9 @@ interface NotesState {
   removeNote: (id: string) => void;
   updateNote: (id: string, patch: Partial<Note>) => void;
   setFilter: (filter: NoteType | 'all') => void;
-  filteredNotes: () => Note[];
 }
 
-export const useNotesStore = create<NotesState>((set, get) => ({
+export const useNotesStore = create<NotesState>((set) => ({
   notes: [],
   isLoading: false,
   activeFilter: 'all',
@@ -23,9 +22,18 @@ export const useNotesStore = create<NotesState>((set, get) => ({
   fetchNotes: async () => {
     set({isLoading: true});
     try {
-      const notes = await StorageService.getNotes();
-      set({notes, isLoading: false});
-    } catch {
+      const dbNotes = await StorageService.getNotes();
+      set(state => {
+        // Merge: keep any in-memory optimistic notes whose id isn't yet in DB
+        const dbIds = new Set(dbNotes.map(n => n.id));
+        const pending = state.notes.filter(n => !dbIds.has(n.id));
+        const merged = [...pending, ...dbNotes].sort(
+          (a, b) => b.createdAt - a.createdAt,
+        );
+        return {notes: merged, isLoading: false};
+      });
+    } catch (e) {
+      console.warn('fetchNotes failed', e);
       set({isLoading: false});
     }
   },
@@ -47,10 +55,4 @@ export const useNotesStore = create<NotesState>((set, get) => ({
   },
 
   setFilter: (filter: NoteType | 'all') => set({activeFilter: filter}),
-
-  filteredNotes: () => {
-    const {notes, activeFilter} = get();
-    if (activeFilter === 'all') return notes;
-    return notes.filter(n => n.type === activeFilter);
-  },
 }));

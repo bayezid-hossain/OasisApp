@@ -15,4 +15,5 @@ data class NoteEntity(
     val reminderAt: Long? = null, // epoch ms, null if no reminder
     val reminderFired: Boolean = false,
     val isCompleted: Boolean = false,
+    val audioPath: String? = null, // absolute path to .m4a file, null for text notes
 )

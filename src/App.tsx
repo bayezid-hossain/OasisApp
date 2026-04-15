@@ -4,6 +4,7 @@ import {GestureHandlerRootView} from 'react-native-gesture-handler';
 import {SafeAreaProvider} from 'react-native-safe-area-context';
 import {RootNavigator} from '@/navigation';
 import {colors} from '@/theme';
+import {useNotesStore} from '@/stores';
 
 // Deep-link handler — listens for events from MainActivity
 // (QS Tile, widget, reminder notification taps)
@@ -29,9 +30,21 @@ function useDeepLinkHandler() {
       },
     );
 
+    // Global voice-result listener: any voice note saved by the native
+    // service (from the notification, widget, QS tile, or in-app) refreshes
+    // the notes store so the dashboard updates immediately — even when the
+    // CaptureOverlay wasn't the one that triggered it.
+    const voiceResultSub = DeviceEventEmitter.addListener(
+      'onSpeechResult',
+      () => {
+        useNotesStore.getState().fetchNotes();
+      },
+    );
+
     return () => {
       openCaptureSub.remove();
       openNoteSub.remove();
+      voiceResultSub.remove();
     };
   }, []);
 }

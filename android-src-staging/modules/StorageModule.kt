@@ -1,5 +1,6 @@
 package com.oasis.app.modules
 
+import android.util.Log
 import com.facebook.react.bridge.*
 import com.oasis.app.classifier.NoteClassifier
 import com.oasis.app.database.NoteDao
@@ -25,7 +26,6 @@ class StorageModule(reactContext: ReactApplicationContext) :
             try {
                 val obj = JSONObject(noteJson)
                 val text = obj.getString("text")
-                // If type not provided by JS (e.g. widget shortcut), classify server-side
                 val classification = if (!obj.has("type") || obj.getString("type").isBlank()) {
                     NoteClassifier.classify(text)
                 } else null
@@ -43,12 +43,15 @@ class StorageModule(reactContext: ReactApplicationContext) :
                             obj.getLong("reminderAt") else null,
                     reminderFired = obj.optBoolean("reminderFired", false),
                     isCompleted = obj.optBoolean("isCompleted", false),
+                    audioPath = obj.optString("audioPath", "").takeIf { it.isNotBlank() },
                 )
                 dao.insert(entity)
+                Log.d("StorageModule", "Saved note id=${entity.id} text=${entity.text.take(40)}")
                 val result = Arguments.createMap()
                 result.putString("id", entity.id)
                 promise.resolve(result)
             } catch (e: Exception) {
+                Log.e("StorageModule", "saveNote failed", e)
                 promise.reject("SAVE_ERROR", e.message, e)
             }
         }
@@ -130,6 +133,7 @@ class StorageModule(reactContext: ReactApplicationContext) :
         note.reminderAt?.let { map.putDouble("reminderAt", it.toDouble()) }
         map.putBoolean("reminderFired", note.reminderFired)
         map.putBoolean("isCompleted", note.isCompleted)
+        note.audioPath?.let { map.putString("audioPath", it) }
         return map
     }
 

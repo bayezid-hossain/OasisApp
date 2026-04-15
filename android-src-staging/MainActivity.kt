@@ -3,6 +3,8 @@ package com.oasis.app
 import android.content.Intent
 import android.os.Bundle
 import com.facebook.react.ReactActivity
+import com.oasis.app.services.VoiceCaptureService
+import com.oasis.app.utils.NotificationHelper
 import com.facebook.react.ReactActivityDelegate
 import com.facebook.react.bridge.Arguments
 import com.facebook.react.defaults.DefaultNewArchitectureEntryPoint.fabricEnabled
@@ -18,6 +20,11 @@ class MainActivity : ReactActivity() {
 
   override fun onCreate(savedInstanceState: Bundle?) {
     super.onCreate(savedInstanceState)
+    // Ensure idle notification is posted (e.g. first install, before any reboot)
+    NotificationHelper.createChannels(this)
+    if (!VoiceCaptureService.isRecording) {
+      NotificationHelper.postIdleNotification(this)
+    }
     handleIntent(intent)
   }
 

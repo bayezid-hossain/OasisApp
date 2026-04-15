@@ -1,22 +1,32 @@
-import {useEffect, useRef} from 'react';
-import type {EmitterSubscription} from 'react-native';
-import {SpeechService, StorageService, AlarmService, HapticsService} from '@/services';
-import {useCaptureStore} from '@/stores';
-import {useNotesStore} from '@/stores';
-import {classifyNote} from '@/utils';
-import {parseTimeFromText} from '@/utils';
-import type {Note} from '@/types';
-import {generateId} from '@/utils/generateId';
+import { HapticsService, SpeechService } from '@/services';
+import { useCaptureStore, useNotesStore } from '@/stores';
+import type { Note } from '@/types';
+import { generateId } from '@/utils/generateId';
+import { useEffect, useRef } from 'react';
+import type { EmitterSubscription } from 'react-native';
 
+/**
+ * Audio-only voice capture. Records raw audio; transcription is deferred
+ * to a future background step (Grok API). The native service persists the
+ * note to Room directly — this hook adds it optimistically to the store on
+ * result so the dashboard updates instantly.
+ */
 export function useVoiceCapture() {
-  const {setStatus, setPartialTranscript, setErrorMessage} = useCaptureStore();
+  const { setStatus, setErrorMessage, setPartialTranscript } = useCaptureStore();
   const addNote = useNotesStore(s => s.addNote);
 
   const subsRef = useRef<EmitterSubscription[]>([]);
+  const resultReceivedRef = useRef(false);
+  const safetyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const fetchNotes = useNotesStore(s => s.fetchNotes);
 
   const cleanup = () => {
     subsRef.current.forEach(s => s.remove());
     subsRef.current = [];
+    if (safetyTimerRef.current) {
+      clearTimeout(safetyTimerRef.current);
+      safetyTimerRef.current = null;
+    }
   };
 
   useEffect(() => {
@@ -26,18 +36,40 @@ export function useVoiceCapture() {
   const startCapture = async () => {
     try {
       setStatus('starting');
+      setPartialTranscript('');
+      resultReceivedRef.current = false;
       HapticsService.notificationSuccess();
 
-      // Subscribe to events before starting
       subsRef.current.push(
-        SpeechService.onPartialResult(({text}) => {
-          setPartialTranscript(text);
+        SpeechService.onResult(({ noteId, audioPath }) => {
+          if (resultReceivedRef.current) return;
+          resultReceivedRef.current = true;
+
+          const note: Note = {
+            id: noteId ?? generateId(),
+            text: '', // transcription happens later (background Grok step)
+            createdAt: Date.now(),
+            type: 'note',
+            inputSource: 'voice',
+            tags: [],
+            confidence: 0,
+            audioPath: audioPath || undefined,
+          };
+
+          // Optimistic: appears instantly in dashboard (service already wrote DB).
+          addNote(note);
+          // Also reconcile with DB so any store subscribers pick up the persisted row.
+          fetchNotes();
+          HapticsService.notificationSave();
+          setStatus('saved');
+
+          setTimeout(() => {
+            setStatus('idle');
+            setPartialTranscript('');
+          }, 1200);
+          cleanup();
         }),
-        SpeechService.onResult(async ({transcript}) => {
-          setStatus('processing');
-          await saveNote(transcript, 'voice');
-        }),
-        SpeechService.onError(({message}) => {
+        SpeechService.onError(({ message }) => {
           setStatus('error');
           setErrorMessage(message);
           cleanup();
@@ -48,17 +80,38 @@ export function useVoiceCapture() {
       setStatus('listening');
     } catch (e: any) {
       setStatus('error');
-      setErrorMessage(e?.message ?? 'Failed to start listening');
+      setErrorMessage(e?.message ?? 'Failed to start recording');
     }
   };
 
   const stopCapture = async () => {
+    const { status } = useCaptureStore.getState();
     try {
+      if (status === 'starting') {
+        cancelCapture();
+        return;
+      }
+      // Don't set 'processing' — we want to go listening → saved directly
+      // when the native event arrives, so the overlay can close promptly.
       await SpeechService.stopListening();
-      // Status transitions to 'processing' via onResult listener
+
+      // Safety net: if no onResult event within 1500ms (bridge hiccup),
+      // assume the service already saved natively and force-refresh.
+      safetyTimerRef.current = setTimeout(() => {
+        if (resultReceivedRef.current) return;
+        resultReceivedRef.current = true;
+        fetchNotes();
+        HapticsService.notificationSave();
+        setStatus('saved');
+        setTimeout(() => {
+          setStatus('idle');
+          setPartialTranscript('');
+        }, 1000);
+        cleanup();
+      }, 1500);
     } catch (e: any) {
       setStatus('error');
-      setErrorMessage(e?.message ?? 'Failed to stop listening');
+      setErrorMessage(e?.message ?? 'Failed to stop recording');
     }
   };
 
@@ -69,54 +122,5 @@ export function useVoiceCapture() {
     setPartialTranscript('');
   };
 
-  const saveNote = async (transcript: string, source: 'voice' | 'text') => {
-    if (!transcript.trim()) {
-      setStatus('idle');
-      cleanup();
-      return;
-    }
-
-    const classification = classifyNote(transcript);
-    const reminderAt = classification.type === 'reminder'
-      ? parseTimeFromText(transcript)
-      : undefined;
-
-    const note: Note = {
-      id: generateId(),
-      text: transcript.trim(),
-      createdAt: Date.now(),
-      type: classification.type,
-      inputSource: source,
-      tags: [],
-      confidence: classification.confidence,
-      reminderAt,
-    };
-
-    // Optimistic update — appears instantly
-    addNote(note);
-
-    try {
-      await StorageService.saveNote(note);
-
-      if (note.type === 'reminder' && reminderAt) {
-        await AlarmService.scheduleReminder(note.id, reminderAt, note.text);
-      }
-
-      HapticsService.notificationSave();
-      setStatus('saved');
-
-      setTimeout(() => {
-        setStatus('idle');
-        setPartialTranscript('');
-      }, 2000);
-    } catch {
-      // Note is already in UI — don't remove it, just log
-      setStatus('saved');
-      setTimeout(() => setStatus('idle'), 2000);
-    } finally {
-      cleanup();
-    }
-  };
-
-  return {startCapture, stopCapture, cancelCapture};
+  return { startCapture, stopCapture, cancelCapture };
 }

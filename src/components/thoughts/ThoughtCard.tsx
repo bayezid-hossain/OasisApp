@@ -2,6 +2,7 @@ import React from 'react';
 import {StyleSheet, Text, TouchableOpacity, View} from 'react-native';
 import {colors, typography, spacing, radius} from '@/theme';
 import {ThoughtTypeBadge} from './ThoughtTypeBadge';
+import {AudioPlayer} from '@/components/audio/AudioPlayer';
 import {formatRelativeTime} from '@/utils';
 import type {Note} from '@/types';
 
@@ -12,17 +13,22 @@ interface ThoughtCardProps {
 }
 
 export function ThoughtCard({note, onPress, large = false}: ThoughtCardProps) {
+  const isAudioOnly = !!note.audioPath && !note.text?.trim();
   return (
     <TouchableOpacity
       style={[styles.card, large && styles.cardLarge]}
       onPress={onPress}
       activeOpacity={0.75}>
       <ThoughtTypeBadge type={note.type} />
-      <Text
-        style={[styles.text, large ? styles.textLarge : styles.textRegular]}
-        numberOfLines={large ? 6 : 3}>
-        {note.text}
-      </Text>
+      {isAudioOnly ? (
+        <AudioPlayer audioPath={note.audioPath!} />
+      ) : (
+        <Text
+          style={[styles.text, large ? styles.textLarge : styles.textRegular]}
+          numberOfLines={large ? 6 : 3}>
+          {note.text}
+        </Text>
+      )}
       <Text style={styles.time}>{formatRelativeTime(note.createdAt)}</Text>
 
       {note.isCompleted && (

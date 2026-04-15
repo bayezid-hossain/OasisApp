@@ -1,85 +1,117 @@
 <?xml version="1.0" encoding="utf-8"?>
-<LinearLayout
+<RelativeLayout
     xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:background="@drawable/widget_bg"
-    android:orientation="vertical"
-    android:padding="16dp"
-    android:gravity="center_vertical">
+    android:padding="14dp">
 
-    <!-- Header row: orb + "Oasis" + timestamp -->
-    <LinearLayout
-        android:layout_width="match_parent"
+    <!-- ── Top row ── -->
+    <TextView
+        android:id="@+id/widget_label"
+        android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:orientation="horizontal"
-        android:gravity="center_vertical"
-        android:layout_marginBottom="8dp">
+        android:layout_alignParentStart="true"
+        android:layout_alignParentTop="true"
+        android:text="oasis"
+        android:textColor="#3ADCCC"
+        android:textSize="11sp"
+        android:letterSpacing="0.12"
+        android:textStyle="bold" />
 
-        <ImageView
-            android:layout_width="20dp"
-            android:layout_height="20dp"
-            android:src="@drawable/oasis_ring_gradient"
-            android:layout_marginEnd="8dp" />
+    <TextView
+        android:id="@+id/widget_timestamp"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_alignParentEnd="true"
+        android:layout_alignParentTop="true"
+        android:text="--"
+        android:textColor="#66BFC9C4"
+        android:textSize="10sp" />
 
-        <Space
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_weight="1" />
-
-        <TextView
-            android:id="@+id/widget_timestamp"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="–"
-            android:textColor="#80BFC9C4"
-            android:textSize="11sp" />
-
-    </LinearLayout>
-
-    <!-- Last thought text -->
+    <!-- ── Idle: note preview ── -->
     <TextView
         android:id="@+id/widget_thought_text"
         android:layout_width="match_parent"
-        android:layout_height="0dp"
-        android:layout_weight="1"
-        android:text="Tap the ring to capture your first thought"
-        android:textColor="#DFE3E4"
-        android:textSize="14sp"
+        android:layout_height="wrap_content"
+        android:layout_below="@id/widget_label"
+        android:layout_above="@id/widget_action_row"
+        android:layout_marginTop="10dp"
+        android:layout_marginBottom="10dp"
+        android:text="Your mind is clear.\nTap to capture a thought."
+        android:textColor="#CCE0E6E4"
+        android:textSize="13sp"
+        android:lineSpacingMultiplier="1.3"
         android:maxLines="3"
-        android:ellipsize="end"
-        android:lineSpacingMultiplier="1.4" />
+        android:ellipsize="end" />
 
-    <!-- Action row -->
+    <!-- ── Recording: elapsed timer (hidden when idle) ── -->
+    <Chronometer
+        android:id="@+id/widget_chronometer"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_below="@id/widget_label"
+        android:layout_above="@id/widget_action_row"
+        android:layout_marginTop="10dp"
+        android:textColor="#3ADCCC"
+        android:textSize="32sp"
+        android:textStyle="bold"
+        android:visibility="gone" />
+
+    <!-- ── Bottom action row ── -->
     <LinearLayout
+        android:id="@+id/widget_action_row"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
+        android:layout_alignParentBottom="true"
         android:orientation="horizontal"
-        android:gravity="end|center_vertical"
-        android:layout_marginTop="8dp"
-        android:layout_gravity="end">
+        android:gravity="end|center_vertical">
 
-        <!-- Mark done -->
-        <ImageButton
-            android:id="@+id/widget_btn_complete"
-            android:layout_width="36dp"
-            android:layout_height="36dp"
-            android:src="@android:drawable/checkbox_on_background"
-            android:background="@android:color/transparent"
-            android:tint="#94D3C1"
-            android:layout_marginEnd="8dp"
-            android:contentDescription="Mark done" />
+        <!-- Idle only: Text capture -->
+        <TextView
+            android:id="@+id/widget_btn_text"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Text"
+            android:textColor="#99BFC9C4"
+            android:textSize="12sp"
+            android:paddingLeft="12dp"
+            android:paddingRight="12dp"
+            android:paddingTop="8dp"
+            android:paddingBottom="8dp"
+            android:layout_marginEnd="6dp" />
 
-        <!-- Oasis Ring mic button -->
-        <ImageButton
+        <!-- Idle only: Voice record -->
+        <TextView
             android:id="@+id/widget_btn_record"
-            android:layout_width="48dp"
-            android:layout_height="48dp"
-            android:src="@android:drawable/ic_btn_speak_now"
-            android:background="@drawable/oasis_ring_gradient"
-            android:tint="#003732"
-            android:contentDescription="Record thought" />
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="  Record  "
+            android:textColor="#0D1F1C"
+            android:textSize="12sp"
+            android:textStyle="bold"
+            android:paddingLeft="16dp"
+            android:paddingRight="16dp"
+            android:paddingTop="9dp"
+            android:paddingBottom="9dp"
+            android:background="@drawable/widget_btn_record_bg" />
+
+        <!-- Recording only: Cancel (hidden when idle) -->
+        <TextView
+            android:id="@+id/widget_btn_cancel"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="  Cancel  "
+            android:textColor="#FFFFFF"
+            android:textSize="12sp"
+            android:textStyle="bold"
+            android:paddingLeft="16dp"
+            android:paddingRight="16dp"
+            android:paddingTop="9dp"
+            android:paddingBottom="9dp"
+            android:background="@drawable/widget_btn_cancel_bg"
+            android:visibility="gone" />
 
     </LinearLayout>
 
-</LinearLayout>
+</RelativeLayout>

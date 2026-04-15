@@ -71,6 +71,49 @@ function ensurePrebuild() {
         console.warn('⚠️  android-src-staging not found.');
     }
 
+    // 4. Verify namespace in android/app/build.gradle
+    //    parsePackageNameAsync (expo-modules-autolinking) reads this to populate
+    //    autolinking.json → ReactNativeApplicationEntryPoint.java uses it.
+    //    If wrong (e.g. "com.oasis"), the Gradle build fails with BuildConfig unresolved.
+    const buildGradlePath = path.join(__dirname, 'android', 'app', 'build.gradle')
+    if (fs.existsSync(buildGradlePath)) {
+        let buildGradle = fs.readFileSync(buildGradlePath, 'utf8')
+        // parsePackageNameAsync (expo-modules-autolinking) only matches the
+        // double-quoted form; single quotes silently fall back to a truncated
+        // package and break ReactNativeApplicationEntryPoint generation.
+        const hasCorrect = buildGradle.includes('namespace "com.oasis.app"')
+        if (!hasCorrect) {
+            const fixed = buildGradle.replace(
+                /namespace\s*[=]*\s*["'][^"']*["']/,
+                'namespace "com.oasis.app"'
+            )
+            if (fixed !== buildGradle) {
+                fs.writeFileSync(buildGradlePath, fixed, 'utf8')
+                console.log('✅ Corrected namespace to com.oasis.app in android/app/build.gradle')
+            } else {
+                // No namespace line — add it inside android { block
+                const withNs = buildGradle.replace(
+                    /android\s*\{/,
+                    'android {\n    namespace "com.oasis.app"'
+                )
+                fs.writeFileSync(buildGradlePath, withNs, 'utf8')
+                console.log('✅ Added namespace com.oasis.app to android/app/build.gradle')
+            }
+        } else {
+            console.log('✅ namespace com.oasis.app confirmed in android/app/build.gradle')
+        }
+    }
+
+    // 5. Nuke cached autolinking.json — see withInvalidateAutolinkingCache
+    //    comment in plugins/withOasisModule.js for the full rationale.
+    const autolinkCacheDir = path.join(__dirname, 'android', 'build', 'generated', 'autolinking')
+    if (fs.existsSync(autolinkCacheDir)) {
+        for (const f of fs.readdirSync(autolinkCacheDir)) {
+            try { fs.unlinkSync(path.join(autolinkCacheDir, f)) } catch {}
+        }
+        console.log('✅ Cleared autolinking cache.')
+    }
+
     console.log('--- Prebuild Complete ---');
 }
 

@@ -2,7 +2,6 @@ package com.oasis.app.modules
 
 import android.content.Intent
 import com.facebook.react.bridge.*
-import com.facebook.react.modules.core.DeviceEventManagerModule
 import com.oasis.app.services.VoiceCaptureService
 
 class SpeechModule(reactContext: ReactApplicationContext) :
@@ -10,11 +9,18 @@ class SpeechModule(reactContext: ReactApplicationContext) :
 
     override fun getName(): String = "SpeechModule"
 
+    /**
+     * Start listening. Optional language = BCP-47 code e.g. "en-US", "es-ES", "bn-BD".
+     * Omit or pass null to use the device default language.
+     */
     @ReactMethod
-    fun startListening(promise: Promise) {
+    fun startListening(language: String?, promise: Promise) {
         try {
             val intent = Intent(reactApplicationContext, VoiceCaptureService::class.java).apply {
                 action = VoiceCaptureService.ACTION_START_LISTENING
+                if (!language.isNullOrBlank()) {
+                    putExtra(VoiceCaptureService.EXTRA_LANGUAGE, language)
+                }
             }
             reactApplicationContext.startForegroundService(intent)
             val result = Arguments.createMap()
@@ -46,7 +52,6 @@ class SpeechModule(reactContext: ReactApplicationContext) :
         reactApplicationContext.startService(intent)
     }
 
-    // Required for RN event emitter
     @ReactMethod
     fun addListener(eventName: String) {}
 

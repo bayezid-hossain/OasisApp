@@ -4,6 +4,7 @@ import {
   Text,
   TouchableOpacity,
   View,
+  Platform,
 } from 'react-native';
 import {DeviceEventEmitter} from 'react-native';
 import Animated, {
@@ -136,7 +137,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     gap: spacing.lg,
     paddingHorizontal: spacing['2xl'],
-    paddingBottom: spacing['2xl'],
+    paddingBottom: (Platform.OS === 'ios' ? spacing.xl : 0),
   },
   transcript: {
     ...typography.titleMd,

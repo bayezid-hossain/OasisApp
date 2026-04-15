@@ -11,6 +11,7 @@ export interface Note {
   reminderAt?: number; // epoch ms, undefined if no reminder
   reminderFired?: boolean;
   isCompleted?: boolean;
+  audioPath?: string;  // absolute path to recorded .m4a, undefined for text notes
 }
 
 export interface Reminder {

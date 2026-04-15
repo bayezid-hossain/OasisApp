@@ -12,6 +12,7 @@ import type {RootStackParamList} from '@/navigation/routes';
 import {colors, typography, spacing, radius} from '@/theme';
 import {ThoughtTypeBadge} from '@/components/thoughts/ThoughtTypeBadge';
 import {SmartReminderModule} from '@/components/reminders/SmartReminderModule';
+import {AudioPlayer} from '@/components/audio/AudioPlayer';
 import {useNotesStore} from '@/stores';
 import {formatRelativeTime, formatTimeOfDay} from '@/utils';
 
@@ -57,6 +58,9 @@ export default function ThoughtDetailScreen({navigation, route}: Props) {
           {note.inputSource === 'voice' ? '🎤 Voice' : '⌨️ Typed'} ·{' '}
           {formatRelativeTime(note.createdAt)}
         </Text>
+
+        {/* Audio playback — shown for voice notes that have a recording */}
+        {note.audioPath && <AudioPlayer audioPath={note.audioPath} />}
 
         {/* Reminder module */}
         {note.type === 'reminder' && <SmartReminderModule note={note} />}

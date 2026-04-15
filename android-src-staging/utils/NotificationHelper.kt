@@ -13,11 +13,13 @@ import com.oasis.app.receivers.NotificationActionReceiver
 
 object NotificationHelper {
 
+    const val CHANNEL_IDLE      = "oasis_idle"
     const val CHANNEL_RECORDING = "oasis_recording"
     const val CHANNEL_REMINDERS = "oasis_reminders"
     const val CHANNEL_RECAP     = "oasis_recap"
     const val CHANNEL_SAVED     = "oasis_saved"
 
+    const val NOTIF_ID_IDLE      = 1000
     const val NOTIF_ID_RECORDING = 1001
     const val NOTIF_ID_RECAP     = 1002
     const val NOTIF_ID_SAVED     = 1003
@@ -25,6 +27,16 @@ object NotificationHelper {
     fun createChannels(context: Context) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val nm = context.getSystemService(NotificationManager::class.java)
+            nm.createNotificationChannel(
+                NotificationChannel(CHANNEL_IDLE, "Oasis Quick Capture",
+                    NotificationManager.IMPORTANCE_DEFAULT).apply {
+                    description = "Always-on lock screen shortcut to capture a thought"
+                    setShowBadge(false)
+                    setSound(null, null)
+                    enableVibration(false)
+                    lockscreenVisibility = Notification.VISIBILITY_PUBLIC
+                }
+            )
             nm.createNotificationChannel(
                 NotificationChannel(CHANNEL_RECORDING, "Voice Recording",
                     NotificationManager.IMPORTANCE_LOW).apply {
@@ -54,11 +66,55 @@ object NotificationHelper {
         }
     }
 
-    /**
-     * Recording notification — shown while VoiceCaptureService is active.
-     * Stop + Cancel buttons work from the lock screen without unlocking.
-     * VISIBILITY_PUBLIC ensures buttons show on lock screen.
-     */
+    // ── Idle notification — always on lock screen, "tap to record" ────────────
+
+    fun buildIdleNotification(context: Context, lastNote: String? = null): Notification {
+        val recordIntent = PendingIntent.getBroadcast(
+            context, 11,
+            Intent(context, NotificationActionReceiver::class.java).apply {
+                action = NotificationActionReceiver.ACTION_START
+            },
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+        val openAppIntent = PendingIntent.getActivity(
+            context, 10,
+            Intent(context, MainActivity::class.java).apply {
+                flags = Intent.FLAG_ACTIVITY_SINGLE_TOP
+            },
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+
+        val body = if (!lastNote.isNullOrBlank())
+            "Last: ${lastNote.take(60)}"
+        else
+            "Tap ● to capture a thought"
+
+        return NotificationCompat.Builder(context, CHANNEL_IDLE)
+            .setSmallIcon(android.R.drawable.ic_btn_speak_now)
+            .setContentTitle("Oasis  ●  Ready")
+            .setContentText(body)
+            .setStyle(NotificationCompat.BigTextStyle().bigText(body))
+            .setContentIntent(openAppIntent)
+            .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+            .setOngoing(true)
+            // VISIBILITY_PUBLIC = show full content on lock screen, no unlock needed
+            .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+            .addAction(android.R.drawable.ic_btn_speak_now, "● Record", recordIntent)
+            .build()
+    }
+
+    fun postIdleNotification(context: Context) {
+        val nm = context.getSystemService(NotificationManager::class.java)
+        nm.notify(NOTIF_ID_IDLE, buildIdleNotification(context))
+    }
+
+    fun cancelIdleNotification(context: Context) {
+        val nm = context.getSystemService(NotificationManager::class.java)
+        nm.cancel(NOTIF_ID_IDLE)
+    }
+
+    // ── Recording notification — foreground, shown while VoiceCaptureService is active ──
+
     fun buildRecordingNotification(context: Context): Notification {
         val openAppIntent = PendingIntent.getActivity(
             context, 0,
@@ -89,12 +145,12 @@ object NotificationHelper {
         return NotificationCompat.Builder(context, CHANNEL_RECORDING)
             .setSmallIcon(android.R.drawable.ic_btn_speak_now)
             .setContentTitle("Oasis is listening…")
-            .setContentText("Tap Stop to save  ·  Cancel to discard")
-            .setContentIntent(openAppIntent)
+            .setContentText("Tap to stop & save")
+            .setContentIntent(stopIntent)     // tap body = stop recording, no unlock needed
             .setPriority(NotificationCompat.PRIORITY_LOW)
             .setOngoing(true)
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
-            .addAction(android.R.drawable.ic_media_pause, "Stop", stopIntent)
+            .addAction(android.R.drawable.ic_media_pause, "Stop",   stopIntent)
             .addAction(android.R.drawable.ic_delete,      "Cancel", cancelIntent)
             .build()
     }

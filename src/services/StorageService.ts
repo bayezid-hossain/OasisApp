@@ -15,6 +15,7 @@ function rawToNote(raw: any): Note {
     reminderAt: raw.reminderAt ?? undefined,
     reminderFired: raw.reminderFired ?? false,
     isCompleted: raw.isCompleted ?? false,
+    audioPath: raw.audioPath || undefined,
   };
 }
 

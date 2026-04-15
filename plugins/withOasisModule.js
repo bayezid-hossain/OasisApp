@@ -27,7 +27,33 @@ const withOasisModule = (config) => {
   config = withOasisBuildGradle(config)
   config = withOasisProguard(config)
   config = withGradleWrapper(config)
+  config = withFixNamespaceImports(config)     // corrects R/BuildConfig imports
+  config = withInvalidateAutolinkingCache(config) // always last — forces autolinking regen
   return config
+}
+
+// ── Invalidate cached autolinking.json ──────────────────────────────────────
+// Expo caches autolinking.json at android/build/generated/autolinking/ keyed
+// on package.json / package-lock.json / react-native.config.js hashes.
+// It does NOT invalidate on android/app/build.gradle changes — so a wrong
+// namespace ("com.oasis") gets frozen into packageName and generates a broken
+// ReactNativeApplicationEntryPoint.java. Nuke it on every prebuild.
+const withInvalidateAutolinkingCache = (config) => {
+  return withDangerousMod(config, [
+    'android',
+    (mod) => {
+      const cacheDir = path.join(
+        mod.modRequest.platformProjectRoot, 'build', 'generated', 'autolinking'
+      )
+      if (fs.existsSync(cacheDir)) {
+        for (const f of fs.readdirSync(cacheDir)) {
+          try { fs.unlinkSync(path.join(cacheDir, f)) } catch {}
+        }
+        console.log('[withOasisModule] Cleared autolinking cache')
+      }
+      return mod
+    },
+  ])
 }
 
 // ── 1. Copy android-src-staging → android/app/src/main/java/com/oasis/app/ ──
@@ -116,6 +142,7 @@ const withOasisMainApplication = (config) => {
       'import com.oasis.app.modules.StoragePackage',
       'import com.oasis.app.modules.HapticsPackage',
       'import com.oasis.app.modules.AlarmPackage',
+      'import com.oasis.app.modules.AudioPackage',
       'import com.oasis.app.utils.NotificationHelper',
     ]
     for (const imp of imports) {
@@ -133,6 +160,7 @@ const withOasisMainApplication = (config) => {
       'add(StoragePackage())',
       'add(HapticsPackage())',
       'add(AlarmPackage())',
+      'add(AudioPackage())',
     ]
     for (const pkg of packages) {
       if (!contents.includes(pkg)) {
@@ -142,6 +170,12 @@ const withOasisMainApplication = (config) => {
         )
       }
     }
+
+    // Always use namespace-qualified BuildConfig (namespace = com.oasis.app, not com.oasis)
+    contents = contents.replace(
+      /^import com\.oasis\.BuildConfig$/m,
+      'import com.oasis.app.BuildConfig'
+    )
 
     // Call NotificationHelper.createChannels in onCreate()
     const channelCall = 'NotificationHelper.createChannels(this)'
@@ -260,6 +294,7 @@ const withOasisManifest = (config) => {
         'intent-filter': [
           {
             action: [
+              { $: { 'android:name': 'com.oasis.app.NOTIF_ACTION_START' } },
               { $: { 'android:name': 'com.oasis.app.NOTIF_ACTION_STOP' } },
               { $: { 'android:name': 'com.oasis.app.NOTIF_ACTION_CANCEL' } },
             ],
@@ -313,6 +348,25 @@ const withOasisBuildGradle = (config) => {
 
     // minSdkVersion 26
     gradle = gradle.replace(/minSdkVersion\s+\d+/, 'minSdkVersion 26')
+
+    // ── Ensure namespace is exactly: namespace "com.oasis.app" (double quotes) ─
+    // parsePackageNameAsync (expo-modules-autolinking) only matches double-quoted
+    // form. With single quotes it silently falls back to a truncated package
+    // ("com.oasis"), which causes ReactNativeApplicationEntryPoint.java to
+    // reference com.oasis.BuildConfig and fail to compile.
+    if (/namespace\s*[=]*\s*["'][^"']*["']/.test(gradle)) {
+      gradle = gradle.replace(
+        /namespace\s*[=]*\s*["'][^"']*["']/,
+        'namespace "com.oasis.app"'
+      )
+      console.log('[withOasisModule] Normalized namespace to "com.oasis.app" (double-quoted)')
+    } else {
+      gradle = gradle.replace(
+        /android\s*\{/,
+        'android {\n    namespace "com.oasis.app"'
+      )
+      console.log('[withOasisModule] Inserted namespace "com.oasis.app"')
+    }
 
     // Oasis dependencies
     if (!gradle.includes('androidx.room:room-runtime')) {
@@ -402,6 +456,43 @@ const withGradleWrapper = (config) => {
         )
         fs.writeFileSync(wrapperPath, contents, 'utf8')
         console.log(`[withOasisModule] Pinned Gradle to ${GRADLE_VERSION}`)
+      }
+      return mod
+    },
+  ])
+}
+
+// ── 8. Fix R/BuildConfig imports to match actual namespace (com.oasis.app) ────
+//
+// Expo generates namespace="com.oasis.app" so R and BuildConfig live there.
+// Any staging file with bare `com.oasis.R` or `com.oasis.BuildConfig` will fail.
+// This step runs after withStagingFiles to guarantee correctness every prebuild.
+
+const withFixNamespaceImports = (config) => {
+  return withDangerousMod(config, [
+    'android',
+    (mod) => {
+      const javaRoot = path.join(
+        mod.modRequest.platformProjectRoot,
+        'app', 'src', 'main', 'java', 'com', 'oasis', 'app'
+      )
+
+      const filesToPatch = [
+        path.join(javaRoot, 'MainApplication.kt'),
+        path.join(javaRoot, 'widget', 'OasisWidgetProvider.kt'),
+        path.join(javaRoot, 'widget', 'WidgetUpdateWorker.kt'),
+      ]
+
+      for (const filePath of filesToPatch) {
+        if (!fs.existsSync(filePath)) continue
+        let src = fs.readFileSync(filePath, 'utf8')
+        const patched = src
+          .replace(/^import com\.oasis\.BuildConfig$/m, 'import com.oasis.app.BuildConfig')
+          .replace(/^import com\.oasis\.R$/m,           'import com.oasis.app.R')
+        if (patched !== src) {
+          fs.writeFileSync(filePath, patched, 'utf8')
+          console.log(`[withOasisModule] Fixed namespace imports in ${path.basename(filePath)}`)
+        }
       }
       return mod
     },

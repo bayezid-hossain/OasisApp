@@ -1,13 +1,13 @@
-import React, {useEffect, useState} from 'react';
+import React, {useEffect, useMemo} from 'react';
 import {
-  SafeAreaView,
   ScrollView,
   StyleSheet,
   Text,
   View,
 } from 'react-native';
+import {SafeAreaView} from 'react-native-safe-area-context';
 import {colors, typography, spacing, radius} from '@/theme';
-import {StorageService} from '@/services';
+import {useNotesStore} from '@/stores';
 import type {Note} from '@/types';
 import type {NoteType} from '@/types';
 import {ThoughtTypeBadge} from '@/components/thoughts/ThoughtTypeBadge';
@@ -22,18 +22,21 @@ function groupByType(notes: Note[]): Record<string, Note[]> {
 }
 
 export default function RecapScreen() {
-  const [weekNotes, setWeekNotes] = useState<Note[]>([]);
-  const [loading, setLoading] = useState(true);
+  // Subscribe to the store so new notes appear instantly.
+  const allNotes = useNotesStore(s => s.notes);
+  const isLoading = useNotesStore(s => s.isLoading);
+  const fetchNotes = useNotesStore(s => s.fetchNotes);
 
   useEffect(() => {
-    const since = Date.now() - 7 * 24 * 60 * 60 * 1000; // 7 days ago
-    StorageService.getNotes(500)
-      .then(notes => {
-        setWeekNotes(notes.filter(n => n.createdAt >= since));
-      })
-      .catch(() => {})
-      .finally(() => setLoading(false));
-  }, []);
+    fetchNotes();
+  }, [fetchNotes]);
+
+  const weekNotes = useMemo(() => {
+    const since = Date.now() - 7 * 24 * 60 * 60 * 1000;
+    return allNotes.filter(n => n.createdAt >= since);
+  }, [allNotes]);
+
+  const loading = isLoading && weekNotes.length === 0;
 
   const groups = groupByType(weekNotes);
   const voiceCount = weekNotes.filter(n => n.inputSource === 'voice').length;
@@ -41,7 +44,7 @@ export default function RecapScreen() {
   const completedCount = weekNotes.filter(n => n.isCompleted).length;
 
   return (
-    <SafeAreaView style={styles.safe}>
+    <SafeAreaView style={styles.safe} edges={['top', 'left', 'right', 'bottom']}>
       <ScrollView
         contentContainerStyle={styles.content}
         showsVerticalScrollIndicator={false}>
@@ -86,7 +89,7 @@ export default function RecapScreen() {
                   <View key={note.id} style={styles.noteRow}>
                     <Text style={styles.noteDot}>·</Text>
                     <Text style={styles.noteText} numberOfLines={2}>
-                      {note.text}
+                      {note.text?.trim() || (note.audioPath ? '🎤 Voice note' : '')}
                     </Text>
                   </View>
                 ))}

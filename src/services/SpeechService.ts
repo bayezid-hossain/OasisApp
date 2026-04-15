@@ -4,17 +4,18 @@ import type {
   PartialResultEvent,
   AmplitudeUpdateEvent,
   SpeechErrorEvent,
+  SpeechResultEvent,
 } from '@/types';
 
 const {SpeechModule} = NativeModules;
 
-export interface SpeechResultEvent {
-  transcript: string;
-}
-
 export const SpeechService = {
-  startListening(): Promise<StartListeningResult> {
-    return SpeechModule.startListening();
+  /**
+   * @param language BCP-47 language code e.g. "en-US", "es-ES", "bn-BD", "hi-IN".
+   *                 Pass undefined to use the device's default language.
+   */
+  startListening(language?: string): Promise<StartListeningResult> {
+    return SpeechModule.startListening(language ?? null);
   },
 
   stopListening(): Promise<void> {

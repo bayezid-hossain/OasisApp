@@ -1,5 +1,6 @@
 package com.oasis.app
 
+import com.oasis.app.BuildConfig
 import android.app.Application
 import com.facebook.react.PackageList
 import com.facebook.react.ReactApplication
@@ -15,6 +16,7 @@ import com.oasis.app.modules.StoragePackage
 import com.oasis.app.modules.SpeechPackage
 import com.oasis.app.modules.HapticsPackage
 import com.oasis.app.modules.AlarmPackage
+import com.oasis.app.modules.AudioPackage
 import com.oasis.app.utils.NotificationHelper
 
 class MainApplication : Application(), ReactApplication {
@@ -27,6 +29,7 @@ class MainApplication : Application(), ReactApplication {
               add(SpeechPackage())
               add(HapticsPackage())
               add(AlarmPackage())
+              add(AudioPackage())
             }
 
         override fun getJSMainModuleName(): String = "index"
